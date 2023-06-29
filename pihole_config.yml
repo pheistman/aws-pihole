@@ -1,0 +1,69 @@
+---
+- name: Pihole server config
+  hosts: all
+  remote_user: ec2-user
+  become: true
+
+  tasks:
+    - name: Set the hostname to pihole 
+      ansible.builtin.hostname:
+        name: "pihole"
+
+    - name: Create docker directory
+      ansible.builtin.file:
+        path: "/home/ec2-user/docker"
+        owner: "ec2-user"
+        state: directory
+
+    - name: Copy files to directories
+      ansible.builtin.copy:
+        src: "{{ item.filename }}"
+        dest: "{{ item.destination }}"
+        owner: "ec2-user"
+      with_items:
+        - { filename: files/.bashrc, destination: "/home/ec2-user/" }
+        - { filename: files/credentials, destination: "/home/ec2-user/.aws/" }
+        - { filename: files/config, destination: "/home/ec2-user/.aws/" }
+        - { filename: files/ec2-awssecupdate.sh, destination: "/home/ec2-user/docker/" }
+        - { filename: files/docker-compose.yml, destination: "/home/ec2-user/docker/" }
+
+    - name: Update cache and install apps
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+        name:
+          - docker
+          - python3-pip
+          - pip3
+          - docker-compose
+        state: present
+
+    - name: Add ec2-user to docker group
+      ansible.builtin.user:
+        name: "ec2-user"
+        groups:
+          - docker
+
+    - name: Enable and start docker service
+      ansible.builtin.service:
+        name: docker
+        state: started
+        enabled: yes
+      
+    - name: Run commands
+      ansible.builtin.shell: |
+        newgrp docker
+        docker-compose up -d
+        docker restart docker_portainer_1
+      args:
+        chdir: "/home/ec2-user/docker/"
+
+    - name: Create cron job to check and update IP address
+      ansible.builtin.cron:
+        name: "automatically update pihole security group with new residential IP whenever it changes"
+        job: "/home/ec2-user/docker/ec2-awssecupdate.sh"
+        minute: "*/5"
+        
+
+    
+    
